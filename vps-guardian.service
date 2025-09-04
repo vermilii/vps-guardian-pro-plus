@@ -1,0 +1,15 @@
+[Unit]
+Description=VPS Guardian Pro Plus - Monitoring & Anti-DDoS with Telegram
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vps-guardian
+ExecStart=/opt/vps-guardian/venv/bin/python /opt/vps-guardian/vps_guardian.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
