@@ -6,7 +6,6 @@ from utils.cloudflare import CF
 from utils.prom_exporter import Exporter
 
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
-API_BASE = "https://api.telegram.org/bot{token}/{method}"
 OFFSET_FILE = "/opt/vps-guardian/.tg_offset"   # << baru
 
 class SimpleBot:
