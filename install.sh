@@ -50,6 +50,23 @@ REPO_URL="$(git -C "$REPO_DIR" config --get remote.origin.url || echo '')"
 echo "${REPO_URL:-https://github.com/YOURNAME/vps-guardian-pro-plus.git}" > /opt/vps-guardian/.repo_url
 install -m 0755 "$INSTALL_DIR/updateguardian.sh" /usr/local/bin/updateguardian
 
+# --- Drain update Telegram lama agar tidak dikonsumsi saat start pertama ---
+if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+  "$INSTALL_DIR/venv/bin/python" - <<'PY' "$TELEGRAM_BOT_TOKEN"
+import sys, json, urllib.request
+tok = sys.argv[1]
+try:
+    with urllib.request.urlopen(f"https://api.telegram.org/bot{tok}/getUpdates", timeout=10) as r:
+        d=json.load(r)
+        last=max([u.get("update_id",0) for u in d.get("result",[])] + [0])
+    urllib.request.urlopen(f"https://api.telegram.org/bot{tok}/getUpdates?offset={last+1}", timeout=10).read()
+    print("Drained Telegram updates:", last)
+except Exception as e:
+    print("Skip drain:", e)
+PY
+  rm -f /opt/vps-guardian/.tg_offset || true
+fi
+
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
