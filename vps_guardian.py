@@ -6,12 +6,19 @@ from utils.cloudflare import CF
 from utils.prom_exporter import Exporter
 
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
+API_BASE = "https://api.telegram.org/bot{token}/{method}"
+OFFSET_FILE = "/opt/vps-guardian/.tg_offset"   # << baru
 
 class SimpleBot:
     def __init__(self, token: str, chat_id: str, polling_interval=2):
         self.token = token; self.chat_id = str(chat_id)
         self.offset = None; self.polling_interval = polling_interval
         self.cb_handlers = []; self.cmd_handlers = {}; self._stop = False
+                # restore offset terakhir agar tidak memproses ulang update lama
+        try:
+            self.offset = int(open(OFFSET_FILE, "r").read().strip())
+        except Exception:
+            pass
     def send_message(self, text: str, buttons=None, chat_id=None):
         chat_id = chat_id or self.chat_id
         payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
@@ -45,6 +52,11 @@ class SimpleBot:
                 if not r.ok: time.sleep(self.polling_interval); continue
                 for upd in r.json().get("result", []):
                     self.offset = upd["update_id"] + 1
+                                        # persist offset ke disk (anti-loop saat restart)
+                    try:
+                        open(OFFSET_FILE, "w").write(str(self.offset))
+                    except Exception:
+                        pass
                     if "callback_query" in upd:
                         cb = upd["callback_query"]; data = cb.get("data","")
                         if cb.get("message",{}).get("chat",{}).get("id") != int(self.chat_id): continue
@@ -98,7 +110,10 @@ def main():
         load=(os.getloadavg()[0]/(os.cpu_count() or 1)) if hasattr(os,"getloadavg") else 0.0
         notify(f"Status: CPU {cpu:.1f}%, Mem {mem:.1f}%, Disk {disk:.1f}%, Load {load:.2f}/core")
     def cmd_selftest(): notify("✅ Self-test OK")
-    def cmd_restart_agent(): notify("🔁 Restarting agent..."); os.system("systemctl restart vps-guardian")
+        def cmd_restart_agent():
+        notify("🔁 Restarting agent...")
+        # delay 1s agar offset tersimpan & ack lebih dulu
+        os.system('nohup bash -c "sleep 1; systemctl restart vps-guardian" >/dev/null 2>&1 &')
     def cmd_blocked():
         st=StateStore(cfg["state"]["file"]); ips=list(st.state.get("blocked_ips", {}).keys()); notify("Blocked IPs: "+(", ".join(ips) if ips else "-"))
     def cmd_f2b_status():
@@ -119,7 +134,9 @@ def main():
         data=payload["data"]
         try: _,_,svc=data.split(":",2)
         except Exception: bot.answer_callback(cb_id,"Bad data"); return
-        os.system(f"systemctl restart {svc} >/dev/null 2>&1"); bot.answer_callback(cb_id, f"Restart {svc} dikirim"); notify(f"🔁 Quick Action: restart {svc} dipicu dari Telegram.")
+               bot.answer_callback(cb_id, f"Restart {svc} dikirim")
+        os.system(f'nohup bash -c "sleep 1; systemctl restart {svc}" >/dev/null 2>&1 &')
+        notify(...)
     bot.on_callback("qa:restart:", on_qa_restart)
 
     bot.start_polling()
