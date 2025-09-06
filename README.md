@@ -38,6 +38,8 @@ sudo TELEGRAM_BOT_TOKEN="ISI_TOKEN" TELEGRAM_CHAT_ID="ISI_CHAT_ID" \
 systemctl status vps-guardian --no-pager
 journalctl -u vps-guardian -f
 
+---
+
 🛠️ Perintah Penting
 # start/stop/restart & log
 sudo systemctl start|stop|restart vps-guardian
@@ -49,17 +51,17 @@ sudo updateguardian
 # uninstall bersih
 sudo /opt/vps-guardian/uninstall.sh
 
+---
+
 📁 Struktur & Lokasi
 
 Kode & venv: /opt/vps-guardian/
-
 Konfigurasi utama: /opt/vps-guardian/config.yaml
-
 State file: /opt/vps-guardian/state.json
-
 Offset Telegram anti-loop: /opt/vps-guardian/.tg_offset
-
 Unit systemd: /etc/systemd/system/vps-guardian.service
+
+---
 
 ⚙️ Konfigurasi (/opt/vps-guardian/config.yaml)
 
@@ -112,6 +114,8 @@ cloudflare:
 firewall:
   whitelist_ips: ["127.0.0.1"]
 
+---
+
 
 Ganti token/chat id dengan aman (tanpa sed):
 
@@ -128,23 +132,21 @@ PY
 sudo rm -f /opt/vps-guardian/.tg_offset
 sudo systemctl restart vps-guardian
 
+---
+
 📱 Perintah Telegram
 
 Ketik atau tekan tombol:
 
 /menu (atau tombol 📋 Menu) – tampilkan keyboard cepat.
-
 /status – CPU/Mem/Disk/Load + penyebab (top process) & saran cepat.
-
 /selftest – uji kirim pesan ke chat.
-
 /blocked – daftar IP yang diblokir (jika tersedia).
-
 /f2b_status – status Fail2ban (jika diaktifkan).
-
 /cf_status – status Cloudflare (jika diaktifkan).
-
 /restart_agent – restart service agent (anti-loop safe).
+
+---
 
 🧪 Troubleshooting Telegram
 
@@ -167,15 +169,20 @@ Cari kandidat chat_id (kirim /start ke bot, lalu):
 curl -s https://api.telegram.org/bot$TOKEN/getUpdates | \
   jq '.result | map({id: (.message.chat.id // .channel_post.chat.id // .edited_message.chat.id), title: (.message.chat.title // .channel_post.chat.title // .edited_message.chat.title), type: (.message.chat.type // .channel_post.chat.type // .edited_message.chat.type)}) | unique'
 
+---
+
 
 Update telegram.chat_id, hapus offset, restart:
 
 sudo rm -f /opt/vps-guardian/.tg_offset && sudo systemctl restart vps-guardian
 
+---
 
 Cek log service:
 
 journalctl -u vps-guardian -n 150 --no-pager
+
+---
 
 🛡️ Fail2ban & Keamanan SSH
 
@@ -189,10 +196,14 @@ sudo fail2ban-client status sshd
 
 Rekomendasi: pakai SSH key; pertimbangkan menonaktifkan password login; ganti port ssh bila perlu.
 
+---
+
 📊 Prometheus (Opsional)
 
 Aktifkan saat install (PROM_ENABLE="y" dan PROM_PORT="9877") atau ubah di config.yaml.
 Endpoint: http://<ip>:9877/metrics → bisa di-scrape Prometheus lalu divisualisasikan di Grafana.
+
+---
 
 🔁 Update & 🧹 Uninstall
 # Update kode dari repo (venv/config aman)
@@ -201,12 +212,12 @@ sudo updateguardian
 # Uninstall bersih (menghapus service & direktori app)
 sudo /opt/vps-guardian/uninstall.sh
 
+---
+
 🧰 Doctor & Anti-Loop
 
 Agent menyimpan offset Telegram di /opt/vps-guardian/.tg_offset agar tidak memproses ulang update lama.
-
 Perintah Restart Agent sudah diberi delay & persist offset → menghindari spam “restarting…”.
-
 Jika terjadi error konfigurasi, jalankan doctor (bila tersedia di repo) atau periksa log systemd.
 
 📝 Catatan Windows (CRLF)
@@ -214,12 +225,9 @@ Jika terjadi error konfigurasi, jalankan doctor (bila tersedia di repo) atau per
 Jika mengedit file di Windows, pastikan line endings LF. Repo menyertakan .gitattributes untuk memaksa LF pada .py/.sh/.service/.yml/.yaml.
 
 FAQ Singkat
-
-Bot tidak respon? Cek token & chat_id, pastikan sudah /start, reset .tg_offset, lalu restart service.
-
-CPU/RAM tinggi dapat notifikasi, bisa auto-tindak? Bisa diaktifkan via alerts/monitoring/remediator (lihat kode & config). Notifikasi menyertakan cause hints (top process) agar kamu bisa bertindak cepat.
-
-Ganti token/chat id? Lihat snippet update YAML di bagian konfigurasi.
+1.Bot tidak respon? Cek token & chat_id, pastikan sudah /start, reset .tg_offset, lalu restart service.
+2.CPU/RAM tinggi dapat notifikasi, bisa auto-tindak? Bisa diaktifkan via alerts/monitoring/remediator (lihat kode & config). Notifikasi menyertakan cause hints (top process) agar kamu bisa bertindak cepat.
+3.Ganti token/chat id? Lihat snippet update YAML di bagian konfigurasi.
 
 Lisensi
 
