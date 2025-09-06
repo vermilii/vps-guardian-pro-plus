@@ -225,12 +225,3 @@ Lisensi
 
 MIT (lihat file LICENSE).
 
-
-> Setelah ditempel, commit & push seperti biasa:
-> ```
-> git add README.md
-> git commit -m "docs: rewrite README end-to-end"
-> git push
-> ```
-> Kalau mau, nanti aku siapkan **install.sh** versi final (auto-patch `monitoring` + validasi YAML) dan **guardian-doctor** jadi kamu cukup `updateguardian` untuk narik perubahan.
-::contentReference[oaicite:0]{index=0}
