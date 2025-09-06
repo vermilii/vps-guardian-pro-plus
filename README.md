@@ -5,7 +5,7 @@ Fail2ban, Cloudflare (optional), Prometheus exporter, and AutoRemediator.
 ## Quick Install (Ubuntu/Debian)
 ```bash
 sudo apt update -y && sudo apt install -y git curl python3 python3-venv python3-pip rsync jq
-git clone https://github.com/YOURNAME/vps-guardian-pro-plus.git
+git clone https://github.com/vermilii/vps-guardian-pro-plus.git
 cd vps-guardian-pro-plus
 sudo bash install.sh
 ```
