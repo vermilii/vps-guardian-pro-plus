@@ -9,19 +9,24 @@ APP="/opt/vps-guardian"
 # ===== opsi ENV non-interaktif (opsional) =====
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
-PROM_ENABLE="${PROM_ENABLE:-n}"          # y/n
+
+# (jangan pakai komentar inline di akhir baris untuk menghindari 'y/n' dieksekusi)
+PROM_ENABLE="${PROM_ENABLE:-n}"
 PROM_BIND="${PROM_BIND:-0.0.0.0}"
 PROM_PORT="${PROM_PORT:-9877}"
-INSTALL_FAIL2BAN="${INSTALL_FAIL2BAN:-n}"# y/n
+INSTALL_FAIL2BAN="${INSTALL_FAIL2BAN:-n}"
 FAIL2BAN_JAIL="${FAIL2BAN_JAIL:-sshd}"
-CF_ENABLED="${CF_ENABLED:-n}"            # y/n
+CF_ENABLED="${CF_ENABLED:-n}"
 CF_TOKEN="${CF_TOKEN:-}"
 CF_ZONE_ID="${CF_ZONE_ID:-}"
 
-APT_GUARD_ENABLE="${APT_GUARD_ENABLE:-y}"      # y/n (default aktif)
-APT_GUARD_TIMEOUT="${APT_GUARD_TIMEOUT:-180}"  # detik
-APT_GUARD_STRICT="${APT_GUARD_STRICT:-y}"      # y=blokir bila timeout/gagal kirim; n=allow
-APT_GUARD_WHITELIST="${APT_GUARD_WHITELIST:-}" # pola dipisah koma, ex: "apt,base-files,linux-*"
+APT_GUARD_ENABLE="${APT_GUARD_ENABLE:-y}"
+APT_GUARD_TIMEOUT="${APT_GUARD_TIMEOUT:-180}"
+APT_GUARD_STRICT="${APT_GUARD_STRICT:-y}"
+APT_GUARD_WHITELIST="${APT_GUARD_WHITELIST:-}"
+
+# helper konversi y/n → true/false (output plain string)
+yn_bool() { [ "${1,,}" = "y" ] && echo true || echo false; }
 
 # ===== helper =====
 need_root() { [ "${EUID:-$(id -u)}" -eq 0 ] || { echo "Jalankan sebagai root (sudo)."; exit 1; }; }
@@ -103,23 +108,23 @@ state:
   file: "$APP/state.json"
 
 prometheus:
-  enable: ${PROM_ENABLE/y/true}
+  enable: $(yn_bool "$PROM_ENABLE")
   bind: "${PROM_BIND}"
   port: ${PROM_PORT}
 
 fail2ban:
-  enable: ${INSTALL_FAIL2BAN/y/true}
+  enable: $(yn_bool "$INSTALL_FAIL2BAN")
   jail: "${FAIL2BAN_JAIL}"
 
 cloudflare:
-  enable: ${CF_ENABLED/y/true}
+  enable: $(yn_bool "$CF_ENABLED")
   api_token: "${CF_TOKEN}"
   zone_id: "${CF_ZONE_ID}"
 
 apt_guard:
-  enable: ${APT_GUARD_ENABLE/y/true}
+  enable: $(yn_bool "$APT_GUARD_ENABLE")
   timeout_seconds: ${APT_GUARD_TIMEOUT}
-  strict: ${APT_GUARD_STRICT/y/true}
+  strict: $(yn_bool "$APT_GUARD_STRICT")
   whitelist: [${APT_GUARD_WHITELIST:+$(echo "$APT_GUARD_WHITELIST" | awk -F, '{for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i); if($i!=""){printf "\"%s\"%s",$i,(i<NF?", ":"")}}}')}]
 
 firewall:
@@ -146,9 +151,13 @@ mon.setdefault("disk_threshold",thr.get("disk",90))
 mon.setdefault("load_threshold",thr.get("load_per_core",1.5))
 mon.setdefault("notify_cooldown_seconds",120)
 cfg["monitoring"]=mon
+# helper truthy
+def truthy(envkey, default):
+  v=os.environ.get(envkey)
+  if v is None: return default
+  return str(v).lower() in ("1","true","y","yes","on")
 # prometheus
 pr=cfg.get("prometheus") or {}
-def truthy(k, d): v=os.environ.get(k); return d if v is None else (str(v).lower() in ("1","true","y","yes","on"))
 pr["enable"]=truthy("PROM_ENABLE", pr.get("enable", False))
 pr["bind"]=os.environ.get("PROM_BIND", pr.get("bind","0.0.0.0"))
 pr["port"]=int(os.environ.get("PROM_PORT", pr.get("port",9877)))
@@ -207,7 +216,7 @@ fi
 log "Pasang APT Guard (bot handler + apt hook)"
 install -d -m 755 "$APP/utils" "$APP/run/apt_guard"
 
-# — bot-side handler: tulis keputusan dari tombol Approve/Deny ke file nonce.decision
+# — bot-side handler
 cat >"$APP/utils/apt_guard.py" <<'PY'
 import os, json, time
 class AptGuardBot:
@@ -222,7 +231,6 @@ class AptGuardBot:
         self.bot.on_callback("apt:deny:", self._cb)
     def _cb(self, cb_id, payload):
         data = payload.get("data","")
-        # format: apt:approve:<nonce>  atau  apt:deny:<nonce>
         try:
             _, action, nonce = data.split(":", 2)
             path = os.path.join(self.dir, f"{nonce}.decision")
@@ -235,9 +243,7 @@ class AptGuardBot:
             except Exception: pass
 PY
 
-# — apt hook (dipanggil oleh APT sebelum dpkg jalan)
-#   membaca daftar paket dari STDIN, kirim permintaan approve via Telegram,
-#   lalu menunggu file keputusan dari bot hingga timeout.
+# — apt hook
 cat >"$APP/apt_guard_hook.py" <<'PY'
 #!/opt/vps-guardian/venv/bin/python
 import sys, os, time, yaml, json, socket, getpass, fnmatch, requests, random, string
@@ -263,33 +269,25 @@ def send_tg(token, chat_id, text, buttons=None):
         return False
 
 def main():
-    # bypass cepat
-    if os.environ.get("GUARDIAN_BYPASS") == "1" or os.path.exists(os.path.join(APP,"apt_guard_disable")):
+    if os.path.exists(os.path.join(APP,"apt_guard_disable")) or os.environ.get("GUARDIAN_BYPASS") == "1":
         return 0
-
     cfg = load_cfg()
     ag = cfg.get("apt_guard") or {}
     if not ag.get("enable", True):
         return 0
-
     tg = (cfg.get("telegram") or {})
     token = tg.get("bot_token") or ""
     chat  = tg.get("chat_id") or ""
     if not token or "PASTE_TOKEN" in token or not str(chat).strip():
-        # Telegram belum diset → fallback
         return 0 if not ag.get("strict", True) else 1
-
     timeout = int(ag.get("timeout_seconds", 180))
     wl = ag.get("whitelist") or []
 
-    # baca paket dari stdin
     raw = sys.stdin.read().strip().splitlines()
-    # format baris contoh: "install pkg:amd64 <cur-ver> <cand-ver>"
     pkgs = []
     for line in raw:
         parts = line.split()
         if not parts: continue
-        # ambil kandidat nama paket di token ke-1 (install/upgrade/remove) → parts[1]
         if len(parts) >= 2 and ":" in parts[1]:
             name = parts[1].split(":")[0]
         elif len(parts) >= 2:
@@ -301,20 +299,16 @@ def main():
     if not pkgs:
         return 0
 
-    # filter whitelist (glob)
     remain = []
     for p in pkgs:
         allowed = any(fnmatch.fnmatch(p, pat) for pat in wl)
         if not allowed: remain.append(p)
-
     if not remain:
         return 0
 
-    # siapkan nonce & file penghubung
     nonce = f"{int(time.time())}-" + "".join(random.choices(string.ascii_lowercase+string.digits,k=6))
     decision_file = os.path.join(RUN, f"{nonce}.decision")
 
-    # kirim permintaan persetujuan
     host = socket.gethostname()
     user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
     preview = ", ".join(remain[:8]) + (f" (+{len(remain)-8})" if len(remain)>8 else "")
@@ -330,7 +324,6 @@ def main():
     if not ok:
         return 0 if not ag.get("strict", True) else 1
 
-    # tunggu keputusan
     t0 = time.time()
     while time.time() - t0 < timeout:
         if os.path.exists(decision_file):
@@ -346,7 +339,6 @@ def main():
                 return 1
         time.sleep(1)
 
-    # timeout
     return 1 if ag.get("strict", True) else 0
 
 if __name__ == "__main__":
@@ -354,15 +346,13 @@ if __name__ == "__main__":
 PY
 chmod +x "$APP/apt_guard_hook.py"
 
-# — aktifkan hook APT setelah semua deps terpasang
 cat >/etc/apt/apt.conf.d/90guardian-apt-guard <<CONF
 DPkg::Pre-Install-Pkgs { "/opt/vps-guardian/apt_guard_hook.py"; };
 CONF
 
-# ===== patch vps_guardian.py untuk memuat handler APT Guard (aman & idempotent) =====
+# ===== patch vps_guardian.py agar muat AptGuardBot =====
 log "Patch vps_guardian.py agar muat AptGuardBot (idempotent)"
 if ! grep -q "from utils.apt_guard import AptGuardBot" "$APP/vps_guardian.py" 2>/dev/null; then
-  # sisipkan setelah inisiasi bot = SimpleBot(...)
   python3 - "$APP/vps_guardian.py" <<'PY'
 import io,sys,re
 p=sys.argv[1]
@@ -374,20 +364,18 @@ try:
     from utils.apt_guard import AptGuardBot
     AptGuardBot(cfg, notify, bot).register()
 except Exception as _e:
-    # diamkan jika modul tak ada / error agar service tetap jalan
     pass
 # --- end APT Guard integration ---
 """
 ns, n = pat.subn(inj, s, count=1)
 if n==0:
-    # fallback: append di akhir main() sebelum loop
-    ns = re.sub(r'(bot\.start_polling\(\).*?\n)(\s*ResourceMonitor\()', r"\1\n    # (APT Guard hook try-load removed if not used)\n    try:\n        from utils.apt_guard import AptGuardBot\n        AptGuardBot(cfg, notify, bot).register()\n    except Exception:\n        pass\n\n    \2", s, count=1, flags=re.S)
+    ns = re.sub(r'(bot\.start_polling\(\).*?\n)(\s*ResourceMonitor\()', r"\1\n    try:\n        from utils.apt_guard import AptGuardBot\n        AptGuardBot(cfg, notify, bot).register()\n    except Exception:\n        pass\n\n    \2", s, count=1, flags=re.S)
 open(p,'w',encoding='utf-8').write(ns)
 print("Injected.")
 PY
 fi
 
-# ===== drain update Telegram lama (kalau token sudah diisi) =====
+# ===== drain update Telegram lama =====
 "$APP/venv/bin/python" - <<'PY'
 import sys, json, urllib.request, yaml, os
 cfgp="/opt/vps-guardian/config.yaml"
@@ -465,7 +453,7 @@ chmod +x "$APP/uninstall.sh"
 
 # ===== start service kalau TOKEN/CHAT valid =====
 START_OK=true
-if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" || "$TELEGRAM_BOT_TOKEN" = "PASTE_TOKEN" || "$TELEGRAM_CHAT_ID" = "PASTE_CHAT_ID" ]]; then
+if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" || "$TELEGRAM_BOT_TOKEN" = "PASTE_TOKEN" || "$TELEGRAM_CHAT_ID" = "PASTE_CHAT_ID" ]]; then
   START_OK=false
   warn "BOT TOKEN / CHAT ID belum diisi. Service belum dijalankan."
   echo "Edit $CFG lalu jalankan:  sudo rm -f $APP/.tg_offset && sudo systemctl restart $SERVICE"
